@@ -141,6 +141,18 @@ def generuj_opis_produktu(
         f"produkt, który harmonijnie wpisuje się w wymagające aranżacje. Wykorzystaj go, aby podkreślić unikalny styl wnętrza i zapewnić użytkownikom wyjątkowe doświadczenia."
     )
 
+    zestaw_opis = ", ".join([elem.strip() for elem in elementy_zestawu if elem.strip()])
+    parametry_opis = ", ".join(
+        f"{klucz.lower()} {wartosc}" for klucz, wartosc in list(parametry.items())[:3] if klucz.strip() and wartosc.strip()
+    )
+    dzialanie_segmenty = [
+        f"Rozpocznij od przygotowania przestrzeni i rozpakowania zestawu zawierającego {zestaw_opis or 'wszystkie niezbędne elementy'}.",
+        f"Zgodnie z dołączoną instrukcją zamontuj {rodzaj.strip().lower()}, korzystając z parametrów takich jak {parametry_opis or 'ergonomiczne wymiary dostosowane do domowych aranżacji'}.",
+        f"Po instalacji {rodzaj.strip().lower()} natychmiast podkreśla charakter wnętrza, oferując {', '.join(korzysci[:2]) if korzysci else 'komfort i styl'} i wzmacniając klimat w duchu {styl.lower()}.",
+    ]
+    tekst_dzialania = "\n".join(textwrap.fill(segment, 120) for segment in dzialanie_segmenty)
+    tekst_dzialania_html = tekst_dzialania.replace("\n", "</p><p>")
+
     cechy_bullet = _format_list_items(cechy_list)
     materialy_bullet = _format_list_items(
         [
@@ -188,6 +200,8 @@ def generuj_opis_produktu(
         <h2>Opis i zastosowanie</h2>
         {zastosowania_text}
         {korzysci_text}
+        <h2>Jak działa i jak z niego korzystać?</h2>
+        <p>{tekst_dzialania_html}</p>
         <h2>Wymiary i parametry techniczne</h2>
         <table class='parametry'>
             <tbody>
@@ -232,6 +246,7 @@ def generuj_opis_produktu(
         "url": f"https://kacpiland.com.pl/produkty/{url}",
         "krotki_opis": short_description,
         "dlugi_opis": opis_dlugi,
+        "tekst_dzialania": tekst_dzialania,
     }
 
 
@@ -343,6 +358,8 @@ with zakladka_produkt:
         st.code(wynik["url"])
         st.subheader("Krótki opis")
         st.write(wynik["krotki_opis"])
+        st.subheader("Tekst działania")
+        st.write(wynik["tekst_dzialania"])
         st.subheader("Długi opis (HTML)")
         st.code(wynik["dlugi_opis"], language="html")
 
