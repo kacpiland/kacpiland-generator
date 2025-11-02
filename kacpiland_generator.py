@@ -1,6 +1,7 @@
 
 import re
 import textwrap
+from html import escape
 from typing import Dict, Iterable, Sequence, Tuple
 
 import streamlit as st
@@ -23,21 +24,29 @@ def _ensure_min_length_name(base_name: str, descriptors: Sequence[str], minimum:
 
     index = 0
     while len(extended_name) < minimum:
-        extended_name = f"{extended_name} | {iterator[index % len(iterator)]}".strip()
+        descriptor = iterator[index % len(iterator)]
+        separator = " | " if extended_name else ""
+        extended_name = f"{extended_name}{separator}{descriptor}".strip()
         index += 1
 
     return extended_name
 
 
+def _normalize_sequence(values: Sequence[str]) -> Sequence[str]:
+    return [value.strip() for value in values if value and value.strip()]
+
+
 def _format_list_items(items: Iterable[str]) -> str:
-    return "".join(f"<li>{item}</li>" for item in items if item.strip())
+    return "".join(f"<li>{escape(item)}</li>" for item in items if item.strip())
 
 
 def _format_parameters_table(parameters: Dict[str, str]) -> str:
     rows = []
     for key, value in parameters.items():
         if key.strip() and value.strip():
-            rows.append(f"<tr><th scope='row'>{key.strip()}</th><td>{value.strip()}</td></tr>")
+            rows.append(
+                f"<tr><th scope='row'>{escape(key.strip())}</th><td>{escape(value.strip())}</td></tr>"
+            )
     return "".join(rows)
 
 
@@ -49,13 +58,49 @@ def _format_faq(faq_entries: Sequence[Tuple[str, str]]) -> str:
                 textwrap.dedent(
                     f"""
                     <div class='faq-item'>
-                        <h3>{question.strip()}</h3>
-                        <p>{answer.strip()}</p>
+                        <h3>{escape(question.strip())}</h3>
+                        <p>{escape(answer.strip())}</p>
                     </div>
                     """
                 ).strip()
             )
     return "".join(blocks)
+
+
+def _count_words(text: str) -> int:
+    """Return the number of words ignoring HTML tags."""
+
+    without_tags = re.sub(r"<[^>]+>", " ", text)
+    words = re.findall(r"\w+", without_tags, flags=re.UNICODE)
+    return len(words)
+
+
+def _generate_alt_texts(
+    rodzaj: str,
+    marka: str,
+    model: str,
+    styl: str,
+    keywords: Sequence[str],
+    desired_count: int = 4,
+) -> Sequence[str]:
+    unique_keywords = []
+    for keyword in keywords:
+        normalized = keyword.lower()
+        if normalized and normalized not in unique_keywords:
+            unique_keywords.append(normalized)
+
+    alt_texts = []
+    base_phrase = f"{rodzaj.strip()} {marka.strip()} {model.strip()}".strip() or rodzaj.strip() or marka.strip()
+    style_phrase = styl.strip().lower() or rodzaj.strip().lower()
+    for index in range(desired_count):
+        keyword = unique_keywords[index % len(unique_keywords)] if unique_keywords else style_phrase
+        keyword = keyword.strip()
+        if keyword:
+            alt_texts.append(f"{base_phrase} w stylu {style_phrase} – {keyword}")
+        else:
+            alt_texts.append(f"{base_phrase} w stylu {style_phrase}")
+
+    return alt_texts
 
 
 def generuj_opis_produktu(
@@ -78,19 +123,48 @@ def generuj_opis_produktu(
     cta: str,
     target_words: int = 1500,
 ) -> Dict[str, str]:
+    cechy_kluczowe = list(_normalize_sequence(cechy_kluczowe))
+    materialy = list(_normalize_sequence(materialy))
+    zastosowania = list(_normalize_sequence(zastosowania))
+    korzysci = list(_normalize_sequence(korzysci))
+    slowa_kluczowe = list(_normalize_sequence(slowa_kluczowe))
+    slowa_long_tail = list(_normalize_sequence(slowa_long_tail))
+    elementy_zestawu = list(_normalize_sequence(elementy_zestawu))
+    faq_entries = [
+        (pytanie.strip(), odpowiedz.strip())
+        for pytanie, odpowiedz in faq_entries
+        if pytanie.strip() and odpowiedz.strip()
+    ]
+
     podstawowa_nazwa = (
         f"{marka.strip()} {model.strip()} {rodzaj.strip()} – {', '.join(cechy_kluczowe[:3])}"
     ).strip()
     rozszerzona_nazwa = _ensure_min_length_name(podstawowa_nazwa, cechy_kluczowe)
     url = _slugify(rozszerzona_nazwa)
 
-    slowa_kluczowe = [s.strip() for s in slowa_kluczowe if s.strip()]
-    slowa_long_tail = [s.strip() for s in slowa_long_tail if s.strip()]
+    materialy_calosc = ", ".join(materialy) if materialy else "szlachetne materiały premium"
+    materialy_glowne = ", ".join(materialy[:2] or materialy) or materialy_calosc
 
-    cechy_list = [
-        f"{rodzaj.strip()} {docelowe_slowo_kluczowe} oferuje {cecha.strip().lower()} – idealne dla wymagających użytkowników."
-        for cecha in cechy_kluczowe
-    ]
+    cechy_list = []
+    for index, cecha in enumerate(cechy_kluczowe):
+        powiazana_korzysc = (
+            korzysci[index % len(korzysci)]
+            if korzysci
+            else "harmonię między estetyką a funkcjonalnością"
+        )
+        cechy_list.append(
+            f"{cecha.capitalize()} – dzięki niej {rodzaj.strip().lower()} zapewnia {powiazana_korzysc}."
+        )
+
+    if materialy:
+        cechy_list.append(
+            f"Materiały premium: {materialy_calosc} gwarantują trwałość i perfekcyjne wykończenie."
+        )
+
+    seo_fraza = docelowe_slowo_kluczowe.strip() or styl.strip() or rodzaj.strip()
+    cechy_list.append(
+        f"Projekt podporządkowany SEO – bogata narracja wykorzystująca frazy jak {seo_fraza}."
+    )
 
     paragrafy_zastosowania = []
     for idx, zastosowanie in enumerate(zastosowania, start=1):
@@ -112,7 +186,7 @@ def generuj_opis_produktu(
             textwrap.fill(
                 (
                     f"Korzystając z {rodzaj.strip()}, zyskujesz {benefit.strip().lower()}, co bezpośrednio przekłada się na pozytywne "
-                    f"doświadczenie użytkownika. Produkt łączy {', '.join(materialy)} z dopracowanym rzemiosłem, dzięki czemu "
+                    f"doświadczenie użytkownika. Produkt łączy {materialy_calosc} z dopracowanym rzemiosłem, dzięki czemu "
                     f"spełnia oczekiwania nawet najbardziej wymagających klientów."),
                 120,
             )
@@ -136,33 +210,39 @@ def generuj_opis_produktu(
         120,
     )
 
-    short_description = (
-        f"{rodzaj.strip()} {marka.strip()} {model.strip()} łączy {', '.join(materialy[:2])} oraz {styl.lower()} charakter, tworząc "
-        f"produkt, który harmonijnie wpisuje się w wymagające aranżacje. Wykorzystaj go, aby podkreślić unikalny styl wnętrza i zapewnić użytkownikom wyjątkowe doświadczenia."
+    short_description = textwrap.fill(
+        (
+            f"{rodzaj.strip()} {marka.strip()} {model.strip()} łączy {materialy_glowne} oraz {styl.lower()} "
+            f"charakter, tworząc rozwiązanie, które harmonijnie wpisuje się w wymagające aranżacje. Wykorzystaj go, aby podkreślić "
+            f"unikalny styl wnętrza i zapewnić użytkownikom wyjątkowe doświadczenia premium."
+        ),
+        120,
     )
 
-    zestaw_opis = ", ".join([elem.strip() for elem in elementy_zestawu if elem.strip()])
+    zestaw_opis = ", ".join(elementy_zestawu)
     parametry_opis = ", ".join(
         f"{klucz.lower()} {wartosc}" for klucz, wartosc in list(parametry.items())[:3] if klucz.strip() and wartosc.strip()
     )
     dzialanie_segmenty = [
-        f"Rozpocznij od przygotowania przestrzeni i rozpakowania zestawu zawierającego {zestaw_opis or 'wszystkie niezbędne elementy'}.",
-        f"Zgodnie z dołączoną instrukcją zamontuj {rodzaj.strip().lower()}, korzystając z parametrów takich jak {parametry_opis or 'ergonomiczne wymiary dostosowane do domowych aranżacji'}.",
-        f"Po instalacji {rodzaj.strip().lower()} natychmiast podkreśla charakter wnętrza, oferując {', '.join(korzysci[:2]) if korzysci else 'komfort i styl'} i wzmacniając klimat w duchu {styl.lower()}.",
+        f"Przygotuj przestrzeń montażową i rozpakuj zestaw obejmujący {zestaw_opis or 'wszystkie niezbędne elementy'}.",
+        f"Zgodnie z instrukcją zamontuj {rodzaj.strip().lower()}, zwracając uwagę na detale jak {parametry_opis or 'ergonomiczne wymiary i wygodne mocowania'}.",
+        f"Po uruchomieniu produkt oferuje {', '.join(korzysci[:2]) if korzysci else 'komfort i styl'}, budując atmosferę w duchu {styl.lower()} i wzmacniając SEO dzięki konsekwentnym frazom kluczowym.",
     ]
-    tekst_dzialania = "\n".join(textwrap.fill(segment, 120) for segment in dzialanie_segmenty)
-    tekst_dzialania_html = tekst_dzialania.replace("\n", "</p><p>")
+    tekst_dzialania = "\n".join(dzialanie_segmenty)
+    tekst_dzialania_html = "<ol>" + "".join(
+        f"<li>{escape(segment)}</li>" for segment in dzialanie_segmenty
+    ) + "</ol>"
 
     cechy_bullet = _format_list_items(cechy_list)
     materialy_bullet = _format_list_items(
         [
-            f"Naturalne i wyselekcjonowane materiały: {', '.join(materialy)}",
+            f"Naturalne i wyselekcjonowane materiały: {', '.join(materialy)}" if materialy else "",
             f"Ręczne dopracowanie detali zgodnie ze standardami {marka.strip()}",
             f"Design inspirowany stylem {styl.strip()}"
         ]
     )
-    zastosowania_text = "".join(f"<p>{paragraf}</p>" for paragraf in paragrafy_zastosowania)
-    korzysci_text = "".join(f"<p>{paragraf}</p>" for paragraf in korzysci_paragrafy)
+    zastosowania_text = "".join(f"<p>{escape(paragraf)}</p>" for paragraf in paragrafy_zastosowania)
+    korzysci_text = "".join(f"<p>{escape(paragraf)}</p>" for paragraf in korzysci_paragrafy)
     parametry_rows = _format_parameters_table(parametry)
     zestaw_items = _format_list_items(elementy_zestawu)
     faq_html = _format_faq(faq_entries)
@@ -188,10 +268,23 @@ def generuj_opis_produktu(
 
     keywords_block = ", ".join(slowa_wprowadzenia)
 
+    alt_texts = _generate_alt_texts(
+        rodzaj,
+        marka,
+        model,
+        styl,
+        slowa_kluczowe + slowa_long_tail + [docelowe_slowo_kluczowe],
+    )
+    alt_text_html = _format_list_items(alt_texts)
+
+    link_slug = _slugify(docelowe_slowo_kluczowe or rodzaj or styl or "kolekcja")
+    docelowy_link = f"https://kacpiland.com.pl/kategoria/{link_slug}"
+    link_anchor = f"Zobacz też inne {rodzaj.strip().lower() or 'produkty'} w stylu {styl.lower() or 'kacpiland'}"
+
     opis_dlugi = textwrap.dedent(
         f"""
-        <h1>{rozszerzona_nazwa}</h1>
-        <p class='intro'>{wprowadzenie}</p>
+        <h1>{escape(rozszerzona_nazwa)}</h1>
+        <p class='intro'>{escape(wprowadzenie)}</p>
         <h2>Najważniejsze cechy produktu</h2>
         <ul>
             {cechy_bullet}
@@ -201,7 +294,7 @@ def generuj_opis_produktu(
         {zastosowania_text}
         {korzysci_text}
         <h2>Jak działa i jak z niego korzystać?</h2>
-        <p>{tekst_dzialania_html}</p>
+        {tekst_dzialania_html}
         <h2>Wymiary i parametry techniczne</h2>
         <table class='parametry'>
             <tbody>
@@ -213,20 +306,24 @@ def generuj_opis_produktu(
             {zestaw_items}
         </ul>
         <h2>Dlaczego warto wybrać właśnie ten produkt?</h2>
-        <p>{sekcja_dlaczego}</p>
+        <p>{escape(sekcja_dlaczego)}</p>
         <h2>FAQ – najczęściej zadawane pytania</h2>
         {faq_html}
         <h2>Inspiracja i lifestyle</h2>
-        <p>{inspiracja_text}</p>
-        <p class='keywords'><strong>Słowa kluczowe:</strong> {keywords_block}</p>
-        <p class='cta'><strong>{cta.strip()}</strong></p>
+        <p>{escape(inspiracja_text)}</p>
+        <h2>Alt tagi dla zdjęć</h2>
+        <ul>{alt_text_html}</ul>
+        <h2>Linkowanie wewnętrzne</h2>
+        <p><a href="{docelowy_link}">{escape(link_anchor)}</a></p>
+        <p class='keywords'><strong>Słowa kluczowe:</strong> {escape(keywords_block)}</p>
+        <p class='cta'><strong>{escape(cta.strip())}</strong></p>
         """
     ).strip()
 
     # Zapewnij minimalną liczbę słów dla SEO
-    slowa = opis_dlugi.split()
+    slowa = _count_words(opis_dlugi)
     padding_index = 0
-    while len(slowa) < target_words:
+    while slowa < target_words:
         dodat_kor = korzysci[padding_index % len(korzysci)] if korzysci else "wyjątkową jakość wykonania"
         dodat_cecha = cechy_kluczowe[padding_index % len(cechy_kluczowe)] if cechy_kluczowe else "wszechstronne zastosowanie"
         dodatkowy_akapit = textwrap.fill(
@@ -237,8 +334,8 @@ def generuj_opis_produktu(
             ),
             120,
         )
-        opis_dlugi += f"\n<p>{dodatkowy_akapit}</p>"
-        slowa = opis_dlugi.split()
+        opis_dlugi += f"\n<p>{escape(dodatkowy_akapit)}</p>"
+        slowa = _count_words(opis_dlugi)
         padding_index += 1
 
     return {
@@ -247,6 +344,8 @@ def generuj_opis_produktu(
         "krotki_opis": short_description,
         "dlugi_opis": opis_dlugi,
         "tekst_dzialania": tekst_dzialania,
+        "alt_teksty": alt_texts,
+        "link_wewnetrzny": docelowy_link,
     }
 
 
@@ -359,7 +458,11 @@ with zakladka_produkt:
         st.subheader("Krótki opis")
         st.write(wynik["krotki_opis"])
         st.subheader("Tekst działania")
-        st.write(wynik["tekst_dzialania"])
+        st.markdown("\n".join(f"- {krok}" for krok in wynik["tekst_dzialania"].splitlines()))
+        st.subheader("Alt tagi dla zdjęć")
+        st.markdown("\n".join(f"- {alt}" for alt in wynik["alt_teksty"]))
+        st.subheader("Link wewnętrzny")
+        st.code(wynik["link_wewnetrzny"])
         st.subheader("Długi opis (HTML)")
         st.code(wynik["dlugi_opis"], language="html")
 
